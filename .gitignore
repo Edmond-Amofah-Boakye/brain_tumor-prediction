@@ -102,15 +102,15 @@ dmypy.json
 
 # Data Science specific
 # Large data files
-*.csv
-*.xlsx
-*.xls
-*.json
-*.parquet
-*.h5
-*.hdf5
-*.pkl
-*.pickle
+# *.csv
+# *.xlsx
+# *.xls
+# *.json
+# *.parquet
+# *.h5
+# *.hdf5
+# *.pkl
+# *.pickle
 
 # Model files
 *.model
@@ -118,12 +118,12 @@ dmypy.json
 *.sav
 
 # Plots and figures
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.svg
-*.pdf
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
+# *.svg
+# *.pdf
 
 # Logs
 *.log
