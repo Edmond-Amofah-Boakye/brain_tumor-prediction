@@ -12,7 +12,6 @@
   "use_weighted_sampling": true,
   "backbone": "efficientnet_b3",
   "pretrained": true,
-  "freeze_backbone": false,
   "use_class_weights": true,
   "epochs": 50,
   "learning_rate": 0.0001,
@@ -21,10 +20,8 @@
   "scheduler": "cosine",
   "min_lr": 1e-07,
   "grad_clip": 1.0,
-  "classification_weight": 1.0,
-  "symmetry_weight": 0.1,
   "patience": 10,
   "min_delta": 0.001,
   "save_every": 10,
-  "output_dir": "results/training_run_20251021_122157"
+  "output_dir": "results"
 }
