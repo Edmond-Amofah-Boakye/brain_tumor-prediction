@@ -14,6 +14,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -521,48 +522,118 @@ class BrainTumorApp:
             st.info("💡 The system will automatically look for the latest trained model in the results directory.")
             return
         
-        # File upload
+        # Horizontal navigation tabs
+        tabs = st.tabs(["🏠 Home", "🎯 Predictions", "🧠 Symmetry", "🔍 Visualizations", "📊 Report"])
+        
+        with tabs[0]:
+            self.show_home_page()
+        with tabs[1]:
+            self.show_predictions_page()
+        with tabs[2]:
+            self.show_symmetry_page()
+        with tabs[3]:
+            self.show_visualizations_page()
+        with tabs[4]:
+            self.show_report_page()
+    
+    def show_home_page(self):
+        """Home page - Upload and analyze"""
+        
+        # Add new analysis button
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🔄 New Analysis", use_container_width=True):
+                st.session_state.analysis_results = None
+                st.rerun()
+        
+        st.markdown("---")
         st.header("📤 Upload Brain Scan")
+        
+        # Add warning about valid inputs
+        st.warning("⚠️ **IMPORTANT:** This system is trained ONLY on brain MRI/CT scans. Uploading other images (photos, documents, etc.) will produce meaningless results!")
+        
         uploaded_file = st.file_uploader(
             "Choose a brain scan image...",
             type=['png', 'jpg', 'jpeg', 'bmp'],
-            help="Upload a brain MRI or CT scan image for analysis"
+            help="⚠️ ONLY upload brain MRI or CT scan images",
+            key="file_uploader"
         )
         
+        # Clear results when new image is uploaded
         if uploaded_file is not None:
-            # Display uploaded image
-            col1, col2 = st.columns([1, 2])
+            # Check if this is a new file
+            if 'last_uploaded_file' not in st.session_state or st.session_state.last_uploaded_file != uploaded_file.name:
+                st.session_state.analysis_results = None
+                st.session_state.last_uploaded_file = uploaded_file.name
+            image = Image.open(uploaded_file)
             
-            with col1:
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Uploaded Image", use_column_width=True)
+            # Two-column layout: Image on left, Results on right
+            left_col, right_col = st.columns([1, 1])
+            
+            with left_col:
+                st.markdown("### 📷 Uploaded Image")
+                st.image(image, width=300)
                 
-                # Image info
-                st.subheader("📊 Image Information")
-                st.write(f"**Size:** {image.size}")
-                st.write(f"**Mode:** {image.mode}")
-                st.write(f"**Format:** {image.format}")
-            
-            with col2:
-                if st.button("🔍 Analyze Image", type="primary", use_container_width=True):
-                    with st.spinner("Analyzing image... This may take a few moments."):
+                # Warning before analysis
+                st.warning("⚠️ Ensure this is a brain MRI/CT scan!")
+                
+                # Analyze button
+                if st.button("🔍 ANALYZE IMAGE", type="primary", use_container_width=True):
+                    with st.spinner("🔄 Analyzing..."):
                         results = self.analyze_image(image)
                         st.session_state.analysis_results = results
-                
+                        if results:
+                            # Check for suspiciously low confidence
+                            if results['prediction']['confidence'] < 0.4:
+                                st.error("❌ Very low confidence! This may not be a brain scan image.")
+                            else:
+                                st.success("✅ Analysis complete!")
+                            st.rerun()
+            
+            with right_col:
                 if st.session_state.analysis_results is not None:
                     results = st.session_state.analysis_results
                     prediction = results['prediction']
-                    
-                    # Prediction result
                     confidence = prediction['confidence']
                     class_name = prediction['class_name']
                     
+                    # Determine styling
                     if confidence > 0.8:
-                        st.markdown(f'<div class="prediction-high"><h3>🎯 Prediction: {class_name}</h3><p>Confidence: {confidence:.1%}</p></div>', unsafe_allow_html=True)
+                        bg_color = "#d4edda"
+                        border_color = "#28a745"
+                        icon = "🎯"
+                        conf_label = "HIGH"
                     elif confidence > 0.6:
-                        st.markdown(f'<div class="prediction-medium"><h3>⚠️ Prediction: {class_name}</h3><p>Confidence: {confidence:.1%}</p></div>', unsafe_allow_html=True)
+                        bg_color = "#fff3cd"
+                        border_color = "#ffc107"
+                        icon = "⚠️"
+                        conf_label = "MEDIUM"
                     else:
-                        st.markdown(f'<div class="prediction-low"><h3>❓ Prediction: {class_name}</h3><p>Low Confidence: {confidence:.1%}</p></div>', unsafe_allow_html=True)
+                        bg_color = "#f8d7da"
+                        border_color = "#dc3545"
+                        icon = "❓"
+                        conf_label = "LOW"
+                    
+                    st.markdown("### 🎯 Prediction Result")
+                    st.markdown(f"""
+                    <div style="background-color: {bg_color}; border-left: 8px solid {border_color}; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
+                        <h2 style="margin: 0; color: #333; font-size: 2rem;">{icon} {class_name}</h2>
+                        <h3 style="margin: 0.5rem 0 0 0; color: {border_color}; font-size: 1.5rem;">{confidence:.1%}</h3>
+                        <p style="margin: 0.3rem 0 0 0; color: #666;">{conf_label} CONFIDENCE</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Metrics in 2x2 grid
+                    st.markdown("### 📊 Quick Metrics")
+                    met_col1, met_col2 = st.columns(2)
+                    with met_col1:
+                        st.metric("Class", class_name)
+                        st.metric("Uncertainty", f"{prediction['uncertainty'][0]:.3f}")
+                    with met_col2:
+                        st.metric("Confidence", f"{confidence:.1%}")
+                        st.metric("Model Score", f"{prediction['confidence_intervals']['confidence'][0]:.1%}")
+                else:
+                    st.info("👆 Click 'ANALYZE IMAGE' to get predictions")
         
         # Analysis results
         if st.session_state.analysis_results is not None:
@@ -580,12 +651,12 @@ class BrainTumorApp:
                 with col1:
                     # Prediction probabilities
                     fig_pred = self.create_prediction_chart(results['prediction']['probabilities'])
-                    st.plotly_chart(fig_pred, use_container_width=True)
+                    st.plotly_chart(fig_pred, use_container_width=True, key="home_tab_pred")
                 
                 with col2:
                     # Confidence intervals
                     fig_conf = self.create_confidence_chart(results['prediction']['confidence_intervals'])
-                    st.plotly_chart(fig_conf, use_container_width=True)
+                    st.plotly_chart(fig_conf, use_container_width=True, key="home_tab_conf")
                 
                 # Metrics
                 st.subheader("📊 Prediction Metrics")
@@ -642,13 +713,62 @@ class BrainTumorApp:
                 heatmap_image = self.display_heatmaps(results['explanation'], results['original_image'])
                 st.markdown(f'<img src="data:image/png;base64,{heatmap_image}" style="width:100%">', unsafe_allow_html=True)
                 
-                st.markdown("""
-                **Explanation of Visualizations:**
-                - **Original Image:** The input brain scan
-                - **GradCAM:** Shows which regions the CNN focused on for classification
-                - **GradCAM++:** Improved version with better localization
-                - **Asymmetry Map:** Highlights asymmetric regions between brain hemispheres
+                st.markdown("---")
+                st.markdown("### 📖 Understanding These Visualizations")
+                
+                st.info(f"""
+                **Prediction: {results['prediction']['class_name']} ({results['prediction']['confidence']:.1%} confidence)**
+                
+                The model is looking at the brain scan and has predicted **{results['prediction']['class_name']}**.
+                The visualizations below show HOW and WHERE the model made this decision.
                 """)
+                
+                st.markdown("""
+                **🔴 GradCAM Heatmaps (Red = High Attention):**
+                - **What it shows:** Which parts of the brain the AI focused on to make its prediction
+                - **Why it matters:** 
+                  - ✅ Verifies the model is looking at medically relevant areas (not artifacts)
+                  - ✅ Shows if attention matches known tumor locations
+                  - ✅ Helps doctors trust or question the AI's reasoning
+                - **How to interpret:**
+                  - Bright red areas = Model thinks these are MOST important for the prediction
+                  - Dark blue areas = Model ignored these regions
+                  - For tumors: Model should focus on abnormal tissue areas
+                
+                **🔥 Asymmetry Map (Bright = High Asymmetry):**
+                - **What it shows:** Differences between left and right brain hemispheres
+                - **Why it matters:**
+                  - Tumors often cause asymmetry in brain structure
+                  - Helps identify abnormal regions
+                  - Provides independent validation of AI prediction
+                - **Clinical relevance:**
+                  - Healthy brains are mostly symmetrical
+                  - Bright spots may indicate pathological changes
+                
+                **🎯 Key Insight:**
+                - If GradCAM focuses on the same area as high asymmetry → Strong evidence
+                - If GradCAM focuses on symmetrical areas → May need radiologist review
+                """)
+                
+                # Add interpretation based on prediction
+                if results['prediction']['class_name'] != 'No Tumor':
+                    st.warning(f"""
+                    **🔍 Clinical Interpretation for {results['prediction']['class_name']}:**
+                    
+                    The model detected a tumor and is focusing its attention on specific regions. 
+                    - Check if the red GradCAM areas align with visible abnormalities
+                    - Compare with asymmetry map to see if tumor location shows structural changes
+                    - Radiologist should verify if attention patterns match expected tumor characteristics
+                    """)
+                else:
+                    st.success("""
+                    **✅ Clinical Interpretation for No Tumor:**
+                    
+                    The model found no tumor and is showing relatively distributed attention across the brain.
+                    - GradCAM should show moderate, distributed attention (not focused hotspots)
+                    - Asymmetry map should show minimal differences
+                    - If you see strong focal attention, this may warrant further review
+                    """)
             
             with tab4:
                 # Clinical report
@@ -717,14 +837,186 @@ class BrainTumorApp:
                         mime="text/markdown"
                     )
         
-        # Footer
-        st.divider()
+    
+    def show_predictions_page(self):
+        """Predictions page"""
+        st.header("🎯 Prediction Analysis")
+        
+        if st.session_state.analysis_results is None:
+            st.warning("⚠️ No analysis results available. Please upload and analyze an image first!")
+            st.info("👈 Go to '🏠 Home' page to upload an image")
+            return
+        
+        results = st.session_state.analysis_results
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig_pred = self.create_prediction_chart(results['prediction']['probabilities'])
+            st.plotly_chart(fig_pred, use_container_width=True, key="pred_page_pred")
+        
+        with col2:
+            fig_conf = self.create_confidence_chart(results['prediction']['confidence_intervals'])
+            st.plotly_chart(fig_conf, use_container_width=True, key="pred_page_conf")
+        
+        st.subheader("📊 Detailed Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Predicted Class", results['prediction']['class_name'])
+        with col2:
+            st.metric("Confidence", f"{results['prediction']['confidence']:.1%}")
+        with col3:
+            st.metric("Uncertainty", f"{results['prediction']['uncertainty'][0]:.3f}")
+        with col4:
+            st.metric("Model Score", f"{results['prediction']['confidence_intervals']['confidence'][0]:.1%}")
+    
+    def show_symmetry_page(self):
+        """Symmetry analysis page"""
+        st.header("🧠 Brain Symmetry Analysis")
+        
+        if st.session_state.analysis_results is None:
+            st.warning("⚠️ No analysis results available. Please upload and analyze an image first!")
+            st.info("👈 Go to '🏠 Home' page to upload an image")
+            return
+        
+        results = st.session_state.analysis_results
+        symmetry_features = results['explanation']['symmetry_analysis']['features']
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            fig_sym = self.create_symmetry_chart(symmetry_features)
+            st.plotly_chart(fig_sym, use_container_width=True, key="sym_page_chart")
+        
+        with col2:
+            st.subheader("🧠 Metrics")
+            for feature, value in symmetry_features.items():
+                st.metric(feature.replace('_', ' ').title(), f"{value:.3f}")
+        
+        st.subheader("🏥 Clinical Interpretation")
+        clinical_text = results['explanation']['symmetry_analysis']['clinical_interpretation']
+        st.info(clinical_text)
+        
+        midline_analysis = results['explanation']['symmetry_analysis'].get('midline_analysis', {})
+        if midline_analysis:
+            st.subheader("📏 Midline Analysis")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Midline Position", f"{midline_analysis.get('midline_position', 0)}")
+            with col2:
+                st.metric("Deviation", f"{midline_analysis.get('deviation_pixels', 0)} px")
+            with col3:
+                st.metric("Deviation %", f"{midline_analysis.get('deviation_percentage', 0):.1f}%")
+            st.write(f"**Interpretation:** {midline_analysis.get('interpretation', 'N/A')}")
+    
+    def show_visualizations_page(self):
+        """Visual explanations page"""
+        st.header("🔍 Explainable AI Visualizations")
+        
+        if st.session_state.analysis_results is None:
+            st.warning("⚠️ No analysis results available. Please upload and analyze an image first!")
+            st.info("👈 Go to '🏠 Home' page to upload an image")
+            return
+        
+        results = st.session_state.analysis_results
+        
+        heatmap_image = self.display_heatmaps(results['explanation'], results['original_image'])
+        st.markdown(f'<img src="data:image/png;base64,{heatmap_image}" style="width:100%">', unsafe_allow_html=True)
+        
         st.markdown("""
-        <div style="text-align: center; color: #666; padding: 2rem;">
-            <p>🧠 Brain Tumor Classification System | Powered by Symmetry-Integrated CNN</p>
-            <p>An Integrative Approach Using Explainable CNNs and Brain Symmetry Metrics</p>
-        </div>
-        """, unsafe_allow_html=True)
+        ### Explanation of Visualizations
+        
+        - **Original Image:** The input brain scan as provided
+        - **GradCAM:** Shows which regions the CNN focused on for classification (red = high attention)
+        - **GradCAM++:** Improved version with better localization of important features
+        - **Asymmetry Map:** Highlights asymmetric regions between brain hemispheres (bright = high asymmetry)
+        
+        These visualizations help understand what the AI "sees" when making predictions and provide clinical insights about brain symmetry.
+        """)
+    
+    def show_report_page(self):
+        """Clinical report page"""
+        st.header("📊 Clinical Decision Support Report")
+        
+        if st.session_state.analysis_results is None:
+            st.warning("⚠️ No analysis results available. Please upload and analyze an image first!")
+            st.info("👈 Go to '🏠 Home' page to upload an image")
+            return
+        
+        results = st.session_state.analysis_results
+        symmetry_features = results['explanation']['symmetry_analysis']['features']
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        report_content = f"""
+        ## Brain Tumor Classification Report
+        
+        **Generated:** {timestamp}  
+        **System:** Symmetry-Integrated CNN with Explainable AI  
+        **Model Accuracy:** 95.82%
+        
+        ---
+        
+        ### Analysis Results
+        
+        **Primary Diagnosis:** {results['prediction']['class_name']}  
+        **Confidence Level:** {results['prediction']['confidence']:.1%}  
+        **Model Uncertainty:** {results['prediction']['uncertainty'][0]:.3f}
+        
+        ---
+        
+        ### Symmetry Analysis
+        
+        **Overall Symmetry Score:** {np.mean(list(symmetry_features.values())):.3f}
+        
+        **Key Findings:**
+        - Intensity Symmetry: {symmetry_features.get('intensity_symmetry', 0):.3f}
+        - Structural Symmetry: {symmetry_features.get('structural_symmetry', 0):.3f}
+        - Asymmetry Index: {symmetry_features.get('asymmetry_index', 0):.3f}
+        
+        ---
+        
+        ### Clinical Interpretation
+        
+        {results['explanation']['symmetry_analysis']['clinical_interpretation']}
+        
+        ---
+        
+        ### Recommendations
+        
+        """
+        
+        if results['prediction']['confidence'] > 0.8:
+            report_content += "✅ **High confidence prediction.** Consider correlation with clinical symptoms and patient history.\n\n"
+        elif results['prediction']['confidence'] > 0.6:
+            report_content += "⚠️ **Medium confidence prediction.** Recommend additional imaging or expert radiologist review.\n\n"
+        else:
+            report_content += "❌ **Low confidence prediction.** Strongly recommend expert radiologist review and consider additional diagnostic tests.\n\n"
+        
+        if results['prediction']['class_name'] != 'No Tumor':
+            report_content += "- Tumor detected - recommend oncology consultation\n"
+            report_content += "- Consider additional imaging modalities (MRI, CT, PET scan) for treatment planning\n"
+            report_content += "- Initiate appropriate referral pathways based on tumor type\n\n"
+        
+        report_content += """
+        ---
+        
+        ### Disclaimer
+        
+        ⚠️ **IMPORTANT:** This AI system is designed to assist healthcare professionals and should not replace clinical judgment. 
+        All results must be reviewed by qualified medical personnel before making treatment decisions. This system achieves 
+        95.82% accuracy but may occasionally misclassify images. Always correlate with clinical presentation and additional 
+        diagnostic information.
+        """
+        
+        st.markdown(report_content)
+        
+        st.download_button(
+            label="📥 Download Complete Report",
+            data=report_content,
+            file_name=f"brain_tumor_report_{timestamp.replace(':', '-').replace(' ', '_')}.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
 
 
 def main():
