@@ -106,95 +106,6 @@ class GradCAM:
         self.hooks = []
 
 
-class GradCAMPlusPlus:
-    """
-    Improved GradCAM++ implementation
-    """
-    
-    def __init__(self, model: nn.Module, target_layer: str):
-        """
-        Initialize GradCAM++
-        
-        Args:
-            model: PyTorch model
-            target_layer: Name of the target layer
-        """
-        self.model = model
-        self.target_layer = target_layer
-        self.gradients = None
-        self.activations = None
-        self.hooks = []
-        
-        self._register_hooks()
-    
-    def _register_hooks(self):
-        """Register hooks for gradient and activation capture"""
-        def forward_hook(module, input, output):
-            self.activations = output
-        
-        def backward_hook(module, grad_input, grad_output):
-            self.gradients = grad_output[0]
-        
-        for name, module in self.model.named_modules():
-            if name == self.target_layer:
-                self.hooks.append(module.register_forward_hook(forward_hook))
-                self.hooks.append(module.register_backward_hook(backward_hook))
-                break
-    
-    def generate_cam(self, input_tensor: torch.Tensor, class_idx: Optional[int] = None) -> np.ndarray:
-        """
-        Generate GradCAM++ heatmap
-        
-        Args:
-            input_tensor: Input tensor
-            class_idx: Target class index
-            
-        Returns:
-            CAM++ heatmap
-        """
-        self.model.eval()
-        output = self.model(input_tensor)
-        
-        if class_idx is None:
-            class_idx = output.argmax(dim=1).item()
-        
-        self.model.zero_grad()
-        class_score = output[0, class_idx]
-        class_score.backward(retain_graph=True)
-        
-        gradients = self.gradients[0]  # (C, H, W)
-        activations = self.activations[0]  # (C, H, W)
-        
-        # Calculate alpha weights (GradCAM++ improvement)
-        alpha_num = gradients.pow(2)
-        alpha_denom = 2.0 * gradients.pow(2) + \
-                     torch.sum(activations * gradients.pow(3), dim=(1, 2), keepdim=True)
-        
-        alpha = alpha_num / (alpha_denom + 1e-7)
-        
-        # Calculate weights
-        weights = torch.sum(alpha * F.relu(gradients), dim=(1, 2))
-        
-        # Generate CAM
-        cam = torch.zeros(activations.shape[1:], dtype=torch.float32)
-        for i, w in enumerate(weights):
-            cam += w * activations[i]
-        
-        cam = F.relu(cam)
-        
-        # Normalize
-        if cam.max() > 0:
-            cam = cam / cam.max()
-        
-        return cam.detach().cpu().numpy()
-    
-    def remove_hooks(self):
-        """Remove hooks"""
-        for hook in self.hooks:
-            hook.remove()
-        self.hooks = []
-
-
 class SymmetryExplainer:
     """
     Explainer for symmetry-based features
@@ -363,6 +274,7 @@ class SymmetryExplainer:
 class IntegratedExplainer:
     """
     Integrated explainer combining GradCAM and symmetry analysis
+    Optimized version using only GradCAM for efficiency
     """
     
     def __init__(self, model: nn.Module, target_layer: str, symmetry_analyzer):
@@ -375,7 +287,6 @@ class IntegratedExplainer:
             symmetry_analyzer: Symmetry analyzer instance
         """
         self.gradcam = GradCAM(model, target_layer)
-        self.gradcam_pp = GradCAMPlusPlus(model, target_layer)
         self.symmetry_explainer = SymmetryExplainer(symmetry_analyzer)
         self.model = model
         
@@ -424,7 +335,6 @@ class IntegratedExplainer:
         
         # Generate GradCAM
         gradcam_heatmap = self.gradcam.generate_cam(image.unsqueeze(0), class_idx)
-        gradcam_pp_heatmap = self.gradcam_pp.generate_cam(image.unsqueeze(0), class_idx)
         
         # Generate symmetry explanations
         symmetry_features_dict = self.symmetry_explainer.symmetry_analyzer.extract_all_symmetry_features(original_image)
@@ -443,7 +353,6 @@ class IntegratedExplainer:
             },
             'visual_explanations': {
                 'gradcam': gradcam_heatmap,
-                'gradcam_plus_plus': gradcam_pp_heatmap,
                 'asymmetry_map': symmetry_explanations['asymmetry_map']
             },
             'symmetry_analysis': {
@@ -472,8 +381,8 @@ class IntegratedExplainer:
         """
         fig = plt.figure(figsize=(20, 12))
         
-        # Create grid layout
-        gs = fig.add_gridspec(3, 4, hspace=0.3, wspace=0.3)
+        # Create grid layout - optimized to 3 columns
+        gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
         
         # Original image
         ax1 = fig.add_subplot(gs[0, 0])
@@ -485,24 +394,17 @@ class IntegratedExplainer:
         ax2 = fig.add_subplot(gs[0, 1])
         gradcam_overlay = self._overlay_heatmap(original_image, explanation['visual_explanations']['gradcam'])
         ax2.imshow(gradcam_overlay)
-        ax2.set_title('GradCAM')
+        ax2.set_title('GradCAM Explanation')
         ax2.axis('off')
         
-        # GradCAM++
+        # Asymmetry map
         ax3 = fig.add_subplot(gs[0, 2])
-        gradcam_pp_overlay = self._overlay_heatmap(original_image, explanation['visual_explanations']['gradcam_plus_plus'])
-        ax3.imshow(gradcam_pp_overlay)
-        ax3.set_title('GradCAM++')
+        ax3.imshow(explanation['visual_explanations']['asymmetry_map'], cmap='hot')
+        ax3.set_title('Asymmetry Map')
         ax3.axis('off')
         
-        # Asymmetry map
-        ax4 = fig.add_subplot(gs[0, 3])
-        ax4.imshow(explanation['visual_explanations']['asymmetry_map'], cmap='hot')
-        ax4.set_title('Asymmetry Map')
-        ax4.axis('off')
-        
         # Prediction probabilities
-        ax5 = fig.add_subplot(gs[1, 0:2])
+        ax5 = fig.add_subplot(gs[1, :2])
         probs = explanation['prediction']['all_probabilities']
         class_names = explanation['prediction']['class_names']
         bars = ax5.bar(class_names, probs)
@@ -516,13 +418,13 @@ class IntegratedExplainer:
         bars[predicted_idx].set_color('red')
         
         # Symmetry features
-        ax6 = fig.add_subplot(gs[1, 2:4])
+        ax6 = fig.add_subplot(gs[1, 2])
         features = explanation['symmetry_analysis']['features']
         feature_names = list(features.keys())
         feature_values = list(features.values())
         ax6.barh(feature_names, feature_values, color='skyblue')
         ax6.set_title('Symmetry Features')
-        ax6.set_xlabel('Symmetry Score')
+        ax6.set_xlabel('Score')
         ax6.set_xlim(0, 1)
         
         # Clinical interpretation
@@ -576,7 +478,6 @@ class IntegratedExplainer:
     def cleanup(self):
         """Clean up hooks"""
         self.gradcam.remove_hooks()
-        self.gradcam_pp.remove_hooks()
 
 
 # Utility functions
