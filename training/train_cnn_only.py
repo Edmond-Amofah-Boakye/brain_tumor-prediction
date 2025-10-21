@@ -24,7 +24,6 @@ from sklearn.metrics import classification_report, confusion_matrix, roc_auc_sco
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.data_loader import BrainTumorDataLoader
-from logger import setup_logger
 
 
 class PureCNNModel(nn.Module):
@@ -116,18 +115,12 @@ class Trainer:
         (self.output_dir / 'logs').mkdir(exist_ok=True)
         (self.output_dir / 'plots').mkdir(exist_ok=True)
         
-        # Setup logger
-        self.logger = setup_logger(
-            'trainer',
-            self.output_dir / 'logs' / 'training.log'
-        )
-        
         # Save config
         with open(self.output_dir / 'config.json', 'w') as f:
             json.dump(config, f, indent=2)
         
-        self.logger.info(f"Output directory: {self.output_dir}")
-        self.logger.info(f"Device: {self.device}")
+        print(f"Output directory: {self.output_dir}")
+        print(f"Device: {self.device}")
         
         # Initialize data loader
         self.data_loader = BrainTumorDataLoader(
@@ -156,18 +149,18 @@ class Trainer:
         
         # Print model info
         model_info = self.model.get_model_info()
-        self.logger.info("Model Information:")
+        print("Model Information:")
         for key, value in model_info.items():
             if isinstance(value, int):
-                self.logger.info(f"  {key}: {value:,}")
+                print(f"  {key}: {value:,}")
             else:
-                self.logger.info(f"  {key}: {value}")
+                print(f"  {key}: {value}")
         
         # Loss function
         if config['use_class_weights']:
             class_weights = self.data_loader.class_weights.to(self.device)
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
-            self.logger.info(f"Using class weights: {class_weights}")
+            print(f"Using class weights: {class_weights}")
         else:
             self.criterion = nn.CrossEntropyLoss()
         
@@ -342,18 +335,18 @@ class Trainer:
                 all_probs[:, i]
             )
         
-        self.logger.info("\n" + "="*50)
-        self.logger.info("TEST RESULTS")
-        self.logger.info("="*50)
-        self.logger.info(f"Test Accuracy: {accuracy:.2f}%")
-        self.logger.info("\nPer-Class Metrics:")
+        print("\n" + "="*50)
+        print("TEST RESULTS")
+        print("="*50)
+        print(f"Test Accuracy: {accuracy:.2f}%")
+        print("\nPer-Class Metrics:")
         for class_name in class_names:
             metrics = report[class_name]
-            self.logger.info(f"\n{class_name}:")
-            self.logger.info(f"  Precision: {metrics['precision']:.4f}")
-            self.logger.info(f"  Recall: {metrics['recall']:.4f}")
-            self.logger.info(f"  F1-Score: {metrics['f1-score']:.4f}")
-            self.logger.info(f"  ROC-AUC: {roc_auc[class_name]:.4f}")
+            print(f"\n{class_name}:")
+            print(f"  Precision: {metrics['precision']:.4f}")
+            print(f"  Recall: {metrics['recall']:.4f}")
+            print(f"  F1-Score: {metrics['f1-score']:.4f}")
+            print(f"  ROC-AUC: {roc_auc[class_name]:.4f}")
         
         # Plot confusion matrix
         self.plot_confusion_matrix(cm, class_names)
@@ -439,15 +432,15 @@ class Trainer:
                 checkpoint,
                 self.output_dir / 'checkpoints' / 'best_model.pth'
             )
-            self.logger.info(f"✓ Saved best model (val_acc: {self.best_val_acc:.2f}%)")
+            print(f"✓ Saved best model (val_acc: {self.best_val_acc:.2f}%)")
     
     def train(self):
         """Main training loop"""
-        self.logger.info("Starting training...")
+        print("Starting training...")
         
         for epoch in range(1, self.config['epochs'] + 1):
-            self.logger.info(f"\nEpoch {epoch}/{self.config['epochs']}")
-            self.logger.info("-" * 50)
+            print(f"\nEpoch {epoch}/{self.config['epochs']}")
+            print("-" * 50)
             
             # Train
             train_loss, train_acc = self.train_epoch()
@@ -464,9 +457,9 @@ class Trainer:
             current_lr = self.optimizer.param_groups[0]['lr']
             
             # Log metrics
-            self.logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
-            self.logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
-            self.logger.info(f"Learning Rate: {current_lr:.6f}")
+            print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+            print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+            print(f"Learning Rate: {current_lr:.6f}")
             
             # Update history
             self.history['train_loss'].append(train_loss)
@@ -490,23 +483,23 @@ class Trainer:
             
             # Early stopping
             if self.patience_counter >= self.config['patience']:
-                self.logger.info(f"\nEarly stopping triggered after {epoch} epochs")
+                print(f"\nEarly stopping triggered after {epoch} epochs")
                 break
         
         # Plot training history
         self.plot_training_history()
         
         # Test the best model
-        self.logger.info("\nLoading best model for testing...")
+        print("\nLoading best model for testing...")
         checkpoint = torch.load(self.output_dir / 'checkpoints' / 'best_model.pth')
         self.model.load_state_dict(checkpoint['model_state_dict'])
         
         test_results = self.test()
         
-        self.logger.info("\nTraining completed!")
-        self.logger.info(f"Best validation accuracy: {self.best_val_acc:.2f}%")
-        self.logger.info(f"Test accuracy: {test_results['accuracy']:.2f}%")
-        self.logger.info(f"Results saved to: {self.output_dir}")
+        print("\nTraining completed!")
+        print(f"Best validation accuracy: {self.best_val_acc:.2f}%")
+        print(f"Test accuracy: {test_results['accuracy']:.2f}%")
+        print(f"Results saved to: {self.output_dir}")
 
 
 def main():
