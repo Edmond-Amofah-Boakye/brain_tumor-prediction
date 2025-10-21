@@ -14,6 +14,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from .symmetry_analyzer import BrainSymmetryAnalyzer
+from .symmetry_analyzer_lite import BrainSymmetryAnalyzerLite
 
 
 class SpatialAttentionModule(nn.Module):
@@ -117,16 +118,23 @@ class MultiScaleFeatureExtractor(nn.Module):
 class SymmetryIntegratedCNN(nn.Module):
     """
     Main model that integrates CNN visual features with brain symmetry metrics
+    Optimized version with configurable symmetry analyzer (lite or full)
     """
     def __init__(self, num_classes=4, backbone='efficientnet_b3', pretrained=True, 
-                 freeze_backbone=False, symmetry_weight=0.3):
+                 freeze_backbone=False, symmetry_weight=0.3, use_lite_symmetry=True):
         super(SymmetryIntegratedCNN, self).__init__()
         
         self.num_classes = num_classes
         self.symmetry_weight = symmetry_weight
+        self.use_lite_symmetry = use_lite_symmetry
         
-        # Initialize symmetry analyzer
-        self.symmetry_analyzer = BrainSymmetryAnalyzer(image_size=(224, 224))
+        # Initialize symmetry analyzer (lite or full version)
+        if use_lite_symmetry:
+            self.symmetry_analyzer = BrainSymmetryAnalyzerLite(image_size=(224, 224))
+            self.symmetry_features = 3  # Lite version: 3 metrics
+        else:
+            self.symmetry_analyzer = BrainSymmetryAnalyzer(image_size=(224, 224))
+            self.symmetry_features = 8  # Full version: 8 metrics
         
         # CNN Backbone
         self.backbone = self._create_backbone(backbone, pretrained, freeze_backbone)
@@ -134,15 +142,14 @@ class SymmetryIntegratedCNN(nn.Module):
         # Get backbone output features
         self.backbone_features = self._get_backbone_features(backbone)
         
-        # Attention modules
+        # Attention modules (optimized - channel only by default)
         self.channel_attention = ChannelAttentionModule(self.backbone_features)
         self.spatial_attention = SpatialAttentionModule()
         
         # Multi-scale feature extraction
         self.multi_scale_extractor = MultiScaleFeatureExtractor(self.backbone)
         
-        # Symmetry feature processing
-        self.symmetry_features = 8  # Number of symmetry metrics
+        # Symmetry feature processing (adjusted for 3 or 8 features)
         self.symmetry_processor = nn.Sequential(
             nn.Linear(self.symmetry_features, 64),
             nn.ReLU(inplace=True),
@@ -227,6 +234,7 @@ class SymmetryIntegratedCNN(nn.Module):
     def extract_symmetry_features(self, images):
         """
         Extract symmetry features from batch of images
+        Optimized to work with both lite (3 metrics) and full (8 metrics) versions
         
         Args:
             images: Batch of images (B, C, H, W)
@@ -250,17 +258,26 @@ class SymmetryIntegratedCNN(nn.Module):
             # Extract symmetry features
             features = self.symmetry_analyzer.extract_all_symmetry_features(img)
             
-            # Convert to list in consistent order
-            feature_vector = [
-                features['intensity_symmetry'],
-                features['texture_symmetry'],
-                features['structural_symmetry'],
-                features['statistical_symmetry'],
-                features['volume_asymmetry'],
-                features['midline_position'],
-                features['hemisphere_correlation'],
-                features['asymmetry_index']
-            ]
+            # Convert to list based on analyzer type
+            if self.use_lite_symmetry:
+                # Lite version: 3 metrics
+                feature_vector = [
+                    features['intensity_symmetry'],
+                    features['structural_symmetry'],
+                    features['asymmetry_index']
+                ]
+            else:
+                # Full version: 8 metrics
+                feature_vector = [
+                    features['intensity_symmetry'],
+                    features['texture_symmetry'],
+                    features['structural_symmetry'],
+                    features['statistical_symmetry'],
+                    features['volume_asymmetry'],
+                    features['midline_position'],
+                    features['hemisphere_correlation'],
+                    features['asymmetry_index']
+                ]
             
             symmetry_features.append(feature_vector)
         
@@ -396,6 +413,7 @@ class SymmetryIntegratedCNN(nn.Module):
             'trainable_parameters': trainable_params,
             'backbone_features': self.backbone_features,
             'symmetry_features': self.symmetry_features,
+            'symmetry_version': 'lite' if self.use_lite_symmetry else 'full',
             'num_classes': self.num_classes
         }
 
@@ -454,7 +472,8 @@ class SymmetryLoss(nn.Module):
 
 
 # Model factory function
-def create_symmetry_cnn(num_classes=4, backbone='efficientnet_b3', pretrained=True, **kwargs):
+def create_symmetry_cnn(num_classes=4, backbone='efficientnet_b3', pretrained=True, 
+                       use_lite_symmetry=True, **kwargs):
     """
     Factory function to create SymmetryIntegratedCNN model
     
@@ -462,6 +481,7 @@ def create_symmetry_cnn(num_classes=4, backbone='efficientnet_b3', pretrained=Tr
         num_classes: Number of output classes
         backbone: CNN backbone architecture
         pretrained: Whether to use pretrained weights
+        use_lite_symmetry: Use lite (3 metrics) or full (8 metrics) symmetry analyzer
         **kwargs: Additional arguments
         
     Returns:
@@ -471,6 +491,7 @@ def create_symmetry_cnn(num_classes=4, backbone='efficientnet_b3', pretrained=Tr
         num_classes=num_classes,
         backbone=backbone,
         pretrained=pretrained,
+        use_lite_symmetry=use_lite_symmetry,
         **kwargs
     )
     
@@ -479,25 +500,40 @@ def create_symmetry_cnn(num_classes=4, backbone='efficientnet_b3', pretrained=Tr
 
 # Example usage
 if __name__ == "__main__":
-    # Create model
-    model = create_symmetry_cnn(num_classes=4)
+    # Test both lite and full versions
+    print("="*60)
+    print("Testing LITE model (3 symmetry metrics)")
+    print("="*60)
+    model_lite = create_symmetry_cnn(num_classes=4, use_lite_symmetry=True)
     
     # Print model info
-    info = model.get_model_info()
+    info = model_lite.get_model_info()
     print("Model Information:")
     for key, value in info.items():
-        print(f"{key}: {value:,}")
+        if isinstance(value, int):
+            print(f"{key}: {value:,}")
+        else:
+            print(f"{key}: {value}")
     
     # Test forward pass
     dummy_input = torch.randn(2, 3, 224, 224)
     
     with torch.no_grad():
-        logits, uncertainty = model(dummy_input)
+        logits, uncertainty = model_lite(dummy_input)
         print(f"\nOutput shapes:")
         print(f"Logits: {logits.shape}")
         print(f"Uncertainty: {uncertainty.shape}")
         
         # Test prediction with confidence
-        results = model.predict_with_confidence(dummy_input, num_samples=5)
+        results = model_lite.predict_with_confidence(dummy_input, num_samples=3)
         print(f"Predictions: {results['predictions'].shape}")
         print(f"Confidence: {results['confidence'].shape}")
+    
+    print("\n" + "="*60)
+    print("Testing FULL model (8 symmetry metrics)")
+    print("="*60)
+    model_full = create_symmetry_cnn(num_classes=4, use_lite_symmetry=False)
+    info_full = model_full.get_model_info()
+    print(f"Symmetry version: {info_full['symmetry_version']}")
+    print(f"Symmetry features: {info_full['symmetry_features']}")
+    print(f"Total parameters: {info_full['total_parameters']:,}")
