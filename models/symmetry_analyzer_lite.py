@@ -320,6 +320,41 @@ class BrainSymmetryAnalyzerLite:
         
         return fig
     
+    def get_midline_analysis(self) -> Dict[str, any]:
+        """
+        Get detailed midline analysis results
+        
+        Returns:
+            Dictionary with midline analysis information
+        """
+        if not hasattr(self, 'midline'):
+            return {
+                'midline_position': 0,
+                'deviation_pixels': 0,
+                'deviation_percentage': 0.0,
+                'interpretation': 'Analysis not yet performed'
+            }
+        
+        # Calculate deviation from center
+        image_center = self.image_size[1] // 2
+        deviation_pixels = abs(self.midline - image_center)
+        deviation_percentage = (deviation_pixels / image_center) * 100
+        
+        # Clinical interpretation
+        if deviation_percentage < 2:
+            interpretation = "Normal midline position - no significant shift detected"
+        elif deviation_percentage < 5:
+            interpretation = "Mild midline shift detected - may indicate subtle asymmetry"
+        else:
+            interpretation = "Significant midline shift detected - suggests structural asymmetry"
+        
+        return {
+            'midline_position': self.midline,
+            'deviation_pixels': deviation_pixels,
+            'deviation_percentage': deviation_percentage,
+            'interpretation': interpretation
+        }
+    
     def get_feature_vector(self, image: np.ndarray) -> np.ndarray:
         """
         Get symmetry features as numpy array for model input

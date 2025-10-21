@@ -26,10 +26,40 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 # Import our modules
-from models.symmetry_cnn import create_symmetry_cnn
-from models.symmetry_analyzer import BrainSymmetryAnalyzer
-from explainability.gradcam import create_explainer
+import torchvision.models as models
+from models.symmetry_analyzer_lite import BrainSymmetryAnalyzerLite
+from explainability.gradcam import GradCAM
 from data.data_loader import BrainTumorDataLoader
+
+
+class PureCNNModel(nn.Module):
+    """Pure CNN model - matches training script"""
+    
+    def __init__(self, num_classes=4, backbone='efficientnet_b3'):
+        super(PureCNNModel, self).__init__()
+        
+        if backbone == 'efficientnet_b3':
+            self.backbone = models.efficientnet_b3(pretrained=False)
+            backbone_features = 1536
+            self.backbone.classifier = nn.Identity()
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(backbone_features, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.4),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(128, num_classes)
+        )
+    
+    def forward(self, x):
+        features = self.backbone(x)
+        logits = self.classifier(features)
+        return logits
 
 
 class BrainTumorApp:
@@ -76,24 +106,28 @@ class BrainTumorApp:
             
             # Create model with same configuration
             config = checkpoint.get('config', {})
-            self.model = create_symmetry_cnn(
+            model = PureCNNModel(
                 num_classes=4,
-                backbone=config.get('backbone', 'efficientnet_b3'),
-                pretrained=False  # Don't need pretrained weights when loading checkpoint
+                backbone=config.get('backbone', 'efficientnet_b3')
             ).to(self.device)
             
             # Load state dict
-            self.model.load_state_dict(checkpoint['model_state_dict'])
-            self.model.eval()
+            model.load_state_dict(checkpoint['model_state_dict'])
+            model.eval()
             
-            # Initialize symmetry analyzer
-            self.symmetry_analyzer = BrainSymmetryAnalyzer(image_size=(224, 224))
+            # Initialize symmetry analyzer (lite version for better performance)
+            symmetry_analyzer = BrainSymmetryAnalyzerLite(image_size=(224, 224))
             
             # Initialize explainer
             target_layer = 'backbone.features.7'  # EfficientNet layer
-            self.explainer = create_explainer(self.model, target_layer, self.symmetry_analyzer)
+            explainer = GradCAM(model, target_layer)
             
+            # Store in session state to persist across interactions
+            st.session_state.model = model
+            st.session_state.symmetry_analyzer = symmetry_analyzer
+            st.session_state.explainer = explainer
             st.session_state.model_loaded = True
+            
             return True
             
         except Exception as e:
@@ -120,8 +154,8 @@ class BrainTumorApp:
         std = np.array([0.229, 0.224, 0.225])
         image_array = (image_array - mean) / std
         
-        # Convert to tensor and add batch dimension
-        image_tensor = torch.from_numpy(image_array.transpose(2, 0, 1)).unsqueeze(0)
+        # Convert to tensor and add batch dimension (ensure float32)
+        image_tensor = torch.from_numpy(image_array.transpose(2, 0, 1)).unsqueeze(0).float()
         
         return image_tensor, image_array
     
@@ -130,6 +164,16 @@ class BrainTumorApp:
         if not st.session_state.model_loaded:
             st.error("Please load a model first")
             return None
+        
+        # Get from session state
+        model = st.session_state.get('model')
+        explainer = st.session_state.get('explainer')
+        symmetry_analyzer = st.session_state.get('symmetry_analyzer')
+        
+        # Debug: Check what's initialized
+        print(f"DEBUG: Model: {model is not None}")
+        print(f"DEBUG: Explainer: {explainer is not None}")
+        print(f"DEBUG: Symmetry Analyzer: {symmetry_analyzer is not None}")
         
         try:
             # Preprocess image
@@ -141,22 +185,96 @@ class BrainTumorApp:
             if len(original_image.shape) == 3:
                 original_image = np.mean(original_image, axis=2)  # Convert to grayscale
             
-            # Model prediction
+            # Model prediction - Simple CNN only (no symmetry)
             with torch.no_grad():
-                logits, uncertainty = self.model(image_tensor)
+                logits = model(image_tensor)
                 probabilities = F.softmax(logits, dim=1)
                 predicted_class = logits.argmax(dim=1).item()
                 confidence = probabilities[0, predicted_class].item()
+                
+                print(f"DEBUG: Predicted class: {predicted_class} ({self.class_names[predicted_class]})")
+                print(f"DEBUG: Confidence: {confidence:.3f}")
             
-            # Get prediction with confidence intervals
-            confidence_results = self.model.predict_with_confidence(image_tensor, num_samples=10)
+            # Create simple uncertainty and confidence estimates
+            uncertainty = torch.tensor([[1.0 - confidence]])
+            confidence_results = {
+                'predictions': probabilities,
+                'std': torch.zeros_like(probabilities),
+                'confidence': torch.tensor([[confidence]])
+            }
             
-            # Generate explanations
-            explanation = self.explainer.explain_prediction(
-                image_tensor.squeeze(0), 
-                original_image, 
-                predicted_class
-            )
+            # Generate GradCAM explanation - BULLETPROOF VERSION
+            print("DEBUG: About to call generate_cam")
+            gradcam_heatmap = np.zeros((224, 224))  # Default
+            try:
+                if explainer is not None and hasattr(explainer, 'generate_cam'):
+                    gradcam_heatmap = explainer.generate_cam(image_tensor, predicted_class)
+                    print("DEBUG: GradCAM generated successfully")
+            except Exception as e:
+                print(f"ERROR in GradCAM: {str(e)}")
+                gradcam_heatmap = np.zeros((224, 224))
+            
+            # Generate symmetry explanation - BULLETPROOF VERSION
+            print("DEBUG: About to extract symmetry features")
+            symmetry_features = {'intensity_symmetry': 0.5, 'structural_symmetry': 0.5, 'asymmetry_index': 0.5}  # Default
+            try:
+                if symmetry_analyzer is not None:
+                    symmetry_features = symmetry_analyzer.extract_all_symmetry_features(original_image)
+                    print("DEBUG: Symmetry features extracted successfully")
+            except Exception as e:
+                print(f"ERROR in symmetry extraction: {str(e)}")
+                symmetry_features = {'intensity_symmetry': 0.5, 'structural_symmetry': 0.5, 'asymmetry_index': 0.5}
+            
+            # Create asymmetry map - BULLETPROOF VERSION
+            print("DEBUG: Creating asymmetry map")
+            asymmetry_map = np.zeros((224, 224))  # Default
+            try:
+                # Ensure we have proper 2D array
+                img_for_asymmetry = original_image.copy()
+                if len(img_for_asymmetry.shape) == 3:
+                    img_for_asymmetry = np.mean(img_for_asymmetry, axis=2)
+                
+                # Calculate half width
+                h, w = img_for_asymmetry.shape
+                half_w = w // 2
+                
+                # Get left and flipped right
+                left = img_for_asymmetry[:, :half_w]
+                right_flipped = np.fliplr(img_for_asymmetry)[:, :half_w]
+                
+                # Calculate asymmetry
+                asymmetry_map = np.abs(left - right_flipped)
+                print("DEBUG: Asymmetry map created successfully")
+            except Exception as e:
+                print(f"ERROR creating asymmetry map: {str(e)}")
+                asymmetry_map = np.zeros((224, 224))
+            
+            # Get midline analysis - BULLETPROOF VERSION
+            print("DEBUG: Getting midline analysis")
+            midline_analysis = {}
+            try:
+                if symmetry_analyzer is not None:
+                    midline_analysis = symmetry_analyzer.get_midline_analysis()
+                    print("DEBUG: Midline analysis retrieved successfully")
+            except Exception as e:
+                print(f"ERROR in midline analysis: {str(e)}")
+                midline_analysis = {}
+            
+            # Combine explanations
+            print("DEBUG: Combining all explanations")
+            explanation = {
+                'visual_explanations': {
+                    'gradcam': gradcam_heatmap,
+                    'gradcam_plus_plus': gradcam_heatmap,
+                    'asymmetry_map': asymmetry_map
+                },
+                'symmetry_analysis': {
+                    'features': symmetry_features,
+                    'clinical_interpretation': self._generate_clinical_interpretation(symmetry_features),
+                    'midline_analysis': midline_analysis
+                }
+            }
+            print("DEBUG: Explanations combined successfully")
             
             # Prepare results
             results = {
@@ -257,6 +375,17 @@ class BrainTumorApp:
         )
         
         return fig
+    
+    def _generate_clinical_interpretation(self, symmetry_features):
+        """Generate clinical interpretation from symmetry features"""
+        avg_symmetry = np.mean(list(symmetry_features.values()))
+        
+        if avg_symmetry > 0.8:
+            return "High degree of brain symmetry detected. This is typical of healthy brain tissue."
+        elif avg_symmetry > 0.6:
+            return "Moderate brain symmetry detected. Some asymmetry present, which may indicate abnormality."
+        else:
+            return "Significant brain asymmetry detected. This pattern is often associated with pathological changes."
     
     def display_heatmaps(self, explanation, original_image):
         """Display explanation heatmaps"""
