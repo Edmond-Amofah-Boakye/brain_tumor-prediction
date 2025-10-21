@@ -102,28 +102,41 @@ dmypy.json
 
 # Data Science specific
 # Large data files
-# *.csv
-# *.xlsx
-# *.xls
+*.csv
+*.xlsx
+*.xls
 # *.json
-# *.parquet
-# *.h5
-# *.hdf5
-# *.pkl
-# *.pickle
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.pickle
 
 # Model files
 *.model
 *.joblib
 *.sav
+*.pth
+*.pt
+*.ckpt
+*.weights
 
-# Plots and figures
+# Dataset directories
+data/raw/
+data/processed/
+data/splits/
+
+# Plots and figures (except documentation)
 # *.png
 # *.jpg
 # *.jpeg
-# *.gif
-# *.svg
+*.gif
+*.svg
 # *.pdf
+
+# Demo files
+demo_*.jpg
+demo_*.png
 
 # Logs
 *.log
