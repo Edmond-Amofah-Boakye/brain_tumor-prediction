@@ -434,8 +434,8 @@ class BrainTumorApp:
     def run(self):
         """Run the Streamlit app"""
         st.set_page_config(
-            page_title="Brain Tumor Classification System",
-            page_icon="🧠",
+            page_title="NeuroScan AI - Clinical Decision Support",
+            page_icon="🏥",
             layout="wide",
             initial_sidebar_state="expanded"
         )
@@ -482,15 +482,29 @@ class BrainTumorApp:
         """, unsafe_allow_html=True)
         
         # Header
-        st.markdown('<h1 class="main-header">🧠 Brain Tumor Classification System</h1>', unsafe_allow_html=True)
-        st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">An Integrative Approach Using Explainable CNNs and Brain Symmetry Metrics</p>', unsafe_allow_html=True)
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 10px; margin-bottom: 2rem;">
+            <h1 style="color: white; text-align: center; margin: 0; font-size: 2.5rem;">🏥 NeuroScan AI</h1>
+            <p style="color: #f0f0f0; text-align: center; margin: 0.5rem 0 0 0; font-size: 1.1rem;">
+                Clinical Decision Support System for Brain Tumor Detection
+            </p>
+            <p style="color: #d0d0d0; text-align: center; margin: 0.3rem 0 0 0; font-size: 0.9rem;">
+                v1.0 | 95.82% Accuracy | FDA Research Use Only
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Sidebar
         with st.sidebar:
-            st.header("🔧 System Controls")
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h3 style="color: white; text-align: center; margin: 0;">🏥 NeuroScan AI</h3>
+                <p style="color: #e0e0e0; text-align: center; margin: 0.3rem 0 0 0; font-size: 0.85rem;">v1.0 Control Panel</p>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Model loading
-            st.subheader("Model Management")
+            st.subheader("🔧 Model Management")
             if st.button("🔄 Load Model", type="primary"):
                 with st.spinner("Loading model..."):
                     if self.load_model():
