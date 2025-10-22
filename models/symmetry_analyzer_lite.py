@@ -215,7 +215,7 @@ class BrainSymmetryAnalyzerLite:
             right: Right hemisphere image
             
         Returns:
-            Asymmetry index (0-1, lower is more symmetric)
+            Asymmetry index (0-1, HIGHER means MORE asymmetric)
         """
         if left.shape != right.shape:
             return 1.0
@@ -227,11 +227,12 @@ class BrainSymmetryAnalyzerLite:
         # Calculate normalized cross-correlation
         correlation = np.mean(left_norm * right_norm)
         
-        # Convert to symmetry score (inverse of asymmetry)
-        # Higher correlation = more symmetric = lower asymmetry
+        # Convert correlation to asymmetry
+        # Higher correlation = more symmetric = LOWER asymmetry
         symmetry_score = max(0.0, correlation)
+        asymmetry = 1.0 - symmetry_score  # THIS IS THE FIX!
         
-        return max(0.0, min(1.0, symmetry_score))
+        return max(0.0, min(1.0, asymmetry))
     
     def extract_all_symmetry_features(self, image: np.ndarray) -> Dict[str, float]:
         """

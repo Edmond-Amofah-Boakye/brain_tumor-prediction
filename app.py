@@ -261,7 +261,10 @@ class BrainTumorApp:
                 print(f"ERROR in midline analysis: {str(e)}")
                 midline_analysis = {}
             
-            # Combine explanations
+            # Determine if tumor detected
+            tumor_detected = self.class_names[predicted_class] != 'No Tumor'
+            
+            # Combine explanations with context-aware interpretation
             print("DEBUG: Combining all explanations")
             explanation = {
                 'visual_explanations': {
@@ -271,7 +274,11 @@ class BrainTumorApp:
                 },
                 'symmetry_analysis': {
                     'features': symmetry_features,
-                    'clinical_interpretation': self._generate_clinical_interpretation(symmetry_features),
+                    'clinical_interpretation': self._generate_clinical_interpretation(
+                        symmetry_features, 
+                        tumor_detected=tumor_detected, 
+                        tumor_type=self.class_names[predicted_class]
+                    ),
                     'midline_analysis': midline_analysis
                 }
             }
@@ -377,16 +384,46 @@ class BrainTumorApp:
         
         return fig
     
-    def _generate_clinical_interpretation(self, symmetry_features):
-        """Generate clinical interpretation from symmetry features"""
-        avg_symmetry = np.mean(list(symmetry_features.values()))
+    def _generate_clinical_interpretation(self, symmetry_features, tumor_detected=False, tumor_type=None):
+        """
+        Generate context-aware clinical interpretation from symmetry features
         
-        if avg_symmetry > 0.8:
-            return "High degree of brain symmetry detected. This is typical of healthy brain tissue."
-        elif avg_symmetry > 0.6:
-            return "Moderate brain symmetry detected. Some asymmetry present, which may indicate abnormality."
+        Args:
+            symmetry_features: Dictionary of symmetry metrics
+            tumor_detected: Whether CNN detected a tumor
+            tumor_type: Type of tumor detected (if any)
+        """
+        intensity_sym = symmetry_features.get('intensity_symmetry', 0)
+        structural_sym = symmetry_features.get('structural_symmetry', 0)
+        asymmetry_idx = symmetry_features.get('asymmetry_index', 0)
+        
+        # Calculate overall symmetry (intensity and structural only)
+        avg_symmetry = (intensity_sym + structural_sym) / 2
+        
+        # Context-aware interpretation
+        if tumor_detected:
+            # TUMOR PRESENT - interpret differently
+            if structural_sym < 0.5 and asymmetry_idx > 0.5:
+                return (f"Significant structural asymmetry detected (structural: {structural_sym:.2f}, asymmetry: {asymmetry_idx:.2f}), "
+                       f"consistent with {tumor_type} prediction. The tumor is causing measurable hemispheric differences.")
+            elif structural_sym < 0.7 and asymmetry_idx > 0.3:
+                return (f"Moderate structural asymmetry (structural: {structural_sym:.2f}) detected with {tumor_type}. "
+                       f"Tumor may be centrally located or in early stage, causing moderate structural changes.")
+            else:
+                return (f"High symmetry maintained despite {tumor_type} detection (intensity: {intensity_sym:.2f}). "
+                       f"This suggests a centrally-located or early-stage tumor that hasn't significantly disrupted hemispheric balance yet. "
+                       f"CNN detection is based on textural/visual features rather than gross structural asymmetry.")
         else:
-            return "Significant brain asymmetry detected. This pattern is often associated with pathological changes."
+            # NO TUMOR - standard interpretation
+            if avg_symmetry > 0.8:
+                return (f"High degree of brain symmetry detected (avg: {avg_symmetry:.2f}). "
+                       f"Both intensity and structural metrics indicate symmetrical brain structure, consistent with normal findings.")
+            elif avg_symmetry > 0.6:
+                return (f"Moderate brain symmetry detected (avg: {avg_symmetry:.2f}). "
+                       f"Some asymmetry present. In absence of tumor detection, this may be within normal variation or warrant follow-up.")
+            else:
+                return (f"Significant asymmetry detected (avg: {avg_symmetry:.2f}). "
+                       f"Despite no tumor detected by CNN, structural asymmetry present. Consider clinical correlation and expert review.")
     
     def display_heatmaps(self, explanation, original_image):
         """Display explanation heatmaps"""
