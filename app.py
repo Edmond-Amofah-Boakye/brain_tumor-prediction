@@ -28,7 +28,7 @@ from plotly.subplots import make_subplots
 
 # Import our modules
 import torchvision.models as models
-from models.symmetry_analyzer_lite import BrainSymmetryAnalyzerLite
+from models.symmetry_analyzer import BrainSymmetryAnalyzer
 from explainability.gradcam import GradCAM
 from data.data_loader import BrainTumorDataLoader
 
@@ -116,8 +116,8 @@ class BrainTumorApp:
             model.load_state_dict(checkpoint['model_state_dict'])
             model.eval()
             
-            # Initialize symmetry analyzer (lite version for better performance)
-            symmetry_analyzer = BrainSymmetryAnalyzerLite(image_size=(224, 224))
+            # Initialize symmetry analyzer
+            symmetry_analyzer = BrainSymmetryAnalyzer(image_size=(224, 224))
             
             # Initialize explainer
             target_layer = 'backbone.features.7'  # EfficientNet layer

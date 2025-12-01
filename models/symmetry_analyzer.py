@@ -11,6 +11,8 @@ from skimage.feature import graycomatrix, graycoprops
 import matplotlib.pyplot as plt
 from typing import Dict, Tuple, Optional
 import warnings
+import torch
+from pathlib import Path
 warnings.filterwarnings('ignore')
 
 
@@ -20,9 +22,27 @@ class BrainSymmetryAnalyzer:
     Computes multiple symmetry metrics that are clinically relevant.
     """
     
-    def __init__(self, image_size: Tuple[int, int] = (224, 224)):
+    def __init__(self, image_size: Tuple[int, int] = (224, 224), 
+                 autoencoder_path: Optional[str] = None):
         self.image_size = image_size
         self.symmetry_metrics = {}
+        
+        # Load autoencoder for abnormality detection
+        self.autoencoder = None
+        if autoencoder_path is None:
+            autoencoder_path = Path(__file__).parent / 'abnormality_autoencoder.pth'
+        
+        if Path(autoencoder_path).exists():
+            try:
+                from models.abnormality_autoencoder import BrainAbnormalityAutoencoder
+                self.autoencoder = BrainAbnormalityAutoencoder()
+                checkpoint = torch.load(autoencoder_path, map_location='cpu')
+                self.autoencoder.load_state_dict(checkpoint['model_state_dict'])
+                self.autoencoder.eval()
+                print(f"✓ Loaded abnormality autoencoder from {autoencoder_path}")
+            except Exception as e:
+                print(f"Warning: Could not load autoencoder: {e}")
+                self.autoencoder = None
         
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """
@@ -344,16 +364,21 @@ class BrainSymmetryAnalyzer:
         # Split hemispheres
         left_hemisphere, right_hemisphere = self.split_hemispheres(processed_image, midline)
         
-        # Compute all symmetry metrics
+        # Compute detailed symmetry metrics
+        intensity_sym = self.compute_intensity_symmetry(left_hemisphere, right_hemisphere)
+        texture_sym = self.compute_texture_symmetry(left_hemisphere, right_hemisphere)
+        structural_sym = self.compute_structural_symmetry(left_hemisphere, right_hemisphere)
+        statistical_sym = self.compute_statistical_symmetry(left_hemisphere, right_hemisphere)
+        volume_asym = self.compute_volume_asymmetry(left_hemisphere, right_hemisphere)
+        asymmetry_idx = self._compute_asymmetry_index(left_hemisphere, right_hemisphere)
+        tissue_abnorm = self.compute_tissue_abnormality(processed_image)
+        
+        # Return simplified 4-metric clinical summary
         features = {
-            'intensity_symmetry': self.compute_intensity_symmetry(left_hemisphere, right_hemisphere),
-            'texture_symmetry': self.compute_texture_symmetry(left_hemisphere, right_hemisphere),
-            'structural_symmetry': self.compute_structural_symmetry(left_hemisphere, right_hemisphere),
-            'statistical_symmetry': self.compute_statistical_symmetry(left_hemisphere, right_hemisphere),
-            'volume_asymmetry': self.compute_volume_asymmetry(left_hemisphere, right_hemisphere),
-            'midline_position': midline / processed_image.shape[1],  # Normalized midline position
-            'hemisphere_correlation': self._compute_correlation(left_hemisphere, right_hemisphere),
-            'asymmetry_index': self._compute_asymmetry_index(left_hemisphere, right_hemisphere)
+            'hemisphere_intensity_balance': intensity_sym,
+            'hemisphere_structural_balance': structural_sym,
+            'hemisphere_asymmetry_index': asymmetry_idx,
+            'tissue_abnormality_score': tissue_abnorm
         }
         
         # Store for visualization
@@ -393,6 +418,76 @@ class BrainSymmetryAnalyzer:
         asymmetry_index = 1.0 - max(0.0, correlation)
         
         return min(1.0, max(0.0, asymmetry_index))
+    
+    def compute_tissue_abnormality(self, image: np.ndarray) -> float:
+        """
+        Compute tissue abnormality score using trained autoencoder
+        
+        This metric detects abnormal tissue patterns by comparing the input
+        image to learned normal brain patterns. High scores indicate presence
+        of pathological tissue (tumors).
+        
+        Args:
+            image: Preprocessed brain image (grayscale, 224x224)
+            
+        Returns:
+            Abnormality score (0-1, higher = more abnormal tissue detected)
+        """
+        if self.autoencoder is None:
+            # Fallback to simple statistical method if autoencoder not available
+            return self._compute_statistical_abnormality(image)
+        
+        try:
+            # Use autoencoder to detect abnormality
+            abnormality_score = self.autoencoder.compute_abnormality_score(image)
+            return abnormality_score
+        except Exception as e:
+            print(f"Warning: Autoencoder failed, using fallback method: {e}")
+            return self._compute_statistical_abnormality(image)
+    
+    def _compute_statistical_abnormality(self, image: np.ndarray) -> float:
+        """
+        Fallback statistical method for abnormality detection
+        
+        Args:
+            image: Preprocessed brain image
+            
+        Returns:
+            Statistical abnormality score (0-1)
+        """
+        # Create brain mask (exclude background)
+        brain_mask = image > 20
+        
+        if np.sum(brain_mask) == 0:
+            return 0.0
+        
+        brain_pixels = image[brain_mask].astype(np.float32)
+        
+        # Calculate statistical baseline
+        mean_intensity = np.mean(brain_pixels)
+        std_intensity = np.std(brain_pixels)
+        
+        if std_intensity < 1:
+            return 0.0
+        
+        # Define abnormal regions as those > 2 std from mean
+        threshold_high = mean_intensity + 2 * std_intensity
+        threshold_low = mean_intensity - 2 * std_intensity
+        
+        # Count abnormal pixels
+        abnormal_high = np.sum(image > threshold_high)
+        abnormal_low = np.sum(image < threshold_low) - np.sum(~brain_mask)
+        
+        total_abnormal = abnormal_high + max(0, abnormal_low)
+        total_brain_pixels = np.sum(brain_mask)
+        
+        # Calculate percentage of abnormal tissue
+        abnormality_ratio = total_abnormal / max(1, total_brain_pixels)
+        
+        # Scale to 0-1 range (cap at 50% abnormal pixels)
+        abnormality_score = min(1.0, abnormality_ratio * 2.0)
+        
+        return abnormality_score
     
     def visualize_symmetry_analysis(self, save_path: Optional[str] = None) -> plt.Figure:
         """
