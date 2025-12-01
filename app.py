@@ -386,44 +386,71 @@ class BrainTumorApp:
     
     def _generate_clinical_interpretation(self, symmetry_features, tumor_detected=False, tumor_type=None):
         """
-        Generate context-aware clinical interpretation from symmetry features
+        Generate context-aware clinical interpretation from structural analysis
         
         Args:
-            symmetry_features: Dictionary of symmetry metrics
+            symmetry_features: Dictionary of structural metrics
             tumor_detected: Whether CNN detected a tumor
             tumor_type: Type of tumor detected (if any)
         """
-        intensity_sym = symmetry_features.get('intensity_symmetry', 0)
-        structural_sym = symmetry_features.get('structural_symmetry', 0)
-        asymmetry_idx = symmetry_features.get('asymmetry_index', 0)
+        # Get all 4 metrics with backward compatibility
+        intensity_bal = symmetry_features.get('hemisphere_intensity_balance', 
+                                              symmetry_features.get('intensity_symmetry', 0))
+        structural_bal = symmetry_features.get('hemisphere_structural_balance',
+                                               symmetry_features.get('structural_symmetry', 0))
+        asymmetry_idx = symmetry_features.get('hemisphere_asymmetry_index',
+                                              symmetry_features.get('asymmetry_index', 0))
+        abnormality = symmetry_features.get('tissue_abnormality_score', 0)
         
-        # Calculate overall symmetry (intensity and structural only)
-        avg_symmetry = (intensity_sym + structural_sym) / 2
+        # Calculate overall hemisphere balance
+        avg_balance = (intensity_bal + structural_bal) / 2
         
-        # Context-aware interpretation
+        # Context-aware interpretation using ALL 4 metrics
         if tumor_detected:
-            # TUMOR PRESENT - interpret differently
-            if structural_sym < 0.5 and asymmetry_idx > 0.5:
-                return (f"Significant structural asymmetry detected (structural: {structural_sym:.2f}, asymmetry: {asymmetry_idx:.2f}), "
-                       f"consistent with {tumor_type} prediction. The tumor is causing measurable hemispheric differences.")
-            elif structural_sym < 0.7 and asymmetry_idx > 0.3:
-                return (f"Moderate structural asymmetry (structural: {structural_sym:.2f}) detected with {tumor_type}. "
-                       f"Tumor may be centrally located or in early stage, causing moderate structural changes.")
+            # TUMOR PRESENT - use tissue abnormality as key indicator
+            if abnormality > 0.15:
+                return (f"**{tumor_type} Detected with Significant Tissue Abnormality**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}% of brain shows abnormal intensity patterns\n"
+                       f"Hemisphere Balance: {avg_balance:.2f} ({'High - tumor centrally located' if avg_balance > 0.7 else 'Low - tumor causing displacement'})\n\n"
+                       f"**Interpretation:** Substantial pathological changes detected. "
+                       f"{'The high hemisphere balance suggests central tumor location (e.g., pituitary, midline glioma).' if avg_balance > 0.7 else 'The low hemisphere balance indicates lateral tumor with mass effect.'}")
+            
+            elif abnormality > 0.08:
+                return (f"**{tumor_type} Detected with Moderate Tissue Abnormality**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}% of brain\n"
+                       f"Hemisphere Balance: {avg_balance:.2f}\n\n"
+                       f"**Interpretation:** Moderate pathological changes. "
+                       f"Tumor may be in early stage or well-circumscribed.")
+            
             else:
-                return (f"High symmetry maintained despite {tumor_type} detection (intensity: {intensity_sym:.2f}). "
-                       f"This suggests a centrally-located or early-stage tumor that hasn't significantly disrupted hemispheric balance yet. "
-                       f"CNN detection is based on textural/visual features rather than gross structural asymmetry.")
+                return (f"**{tumor_type} Detected - Low Structural Abnormality Score**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}%\n"
+                       f"Note: Low abnormality score despite CNN tumor detection. "
+                       f"This may indicate: (1) Very early stage tumor, (2) Tumor with similar intensity to normal tissue, "
+                       f"or (3) Need for expert radiologist review to confirm findings.")
+        
         else:
-            # NO TUMOR - standard interpretation
-            if avg_symmetry > 0.8:
-                return (f"High degree of brain symmetry detected (avg: {avg_symmetry:.2f}). "
-                       f"Both intensity and structural metrics indicate symmetrical brain structure, consistent with normal findings.")
-            elif avg_symmetry > 0.6:
-                return (f"Moderate brain symmetry detected (avg: {avg_symmetry:.2f}). "
-                       f"Some asymmetry present. In absence of tumor detection, this may be within normal variation or warrant follow-up.")
+            # NO TUMOR - abnormality should be low
+            if abnormality > 0.10:
+                return (f"**No Tumor Detected BUT Structural Abnormality Present**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}%\n"
+                       f"⚠️ **Important:** CNN classifies as 'No Tumor' but {abnormality*100:.1f}% abnormal tissue detected. "
+                       f"This discrepancy warrants expert radiologist review. Possible causes: artifact, non-tumor pathology, "
+                       f"or false negative that requires investigation.")
+            
+            elif abnormality > 0.05:
+                return (f"**No Tumor - Minor Structural Variation**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}%\n"
+                       f"Hemisphere Balance: {avg_balance:.2f}\n\n"
+                       f"**Interpretation:** Minimal structural variation detected. "
+                       f"Likely within normal range, but clinical correlation recommended.")
+            
             else:
-                return (f"Significant asymmetry detected (avg: {avg_symmetry:.2f}). "
-                       f"Despite no tumor detected by CNN, structural asymmetry present. Consider clinical correlation and expert review.")
+                return (f"**No Tumor - Normal Structural Analysis**\n\n"
+                       f"Abnormal Tissue: {abnormality*100:.1f}%\n"
+                       f"Hemisphere Balance: {avg_balance:.2f}\n\n"
+                       f"**Interpretation:** Structural analysis consistent with healthy brain tissue. "
+                       f"Both CNN classification and structural metrics indicate normal findings.")
     
     def display_heatmaps(self, explanation, original_image):
         """Display explanation heatmaps"""
