@@ -1,3 +1,10 @@
+# Git LFS configuration for large model files
+# Models over 100MB need to be tracked with Git LFS for GitHub/HuggingFace
+
+# Track the trained model with Git LFS
+results/training_run_*/checkpoints/best_model.pth filter=lfs diff=lfs merge=lfs -text
+# Track other large model files if needed in the future
+*.pth filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text

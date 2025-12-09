@@ -112,14 +112,17 @@ dmypy.json
 *.pkl
 *.pickle
 
-# Model files
+# Model files (training checkpoints)
 *.model
 *.joblib
 *.sav
-*.pth
+# *.pth  # Commented out - need to track trained models for deployment
 *.pt
 *.ckpt
 *.weights
+
+# Exception: Track the trained model in results directory
+!results/training_run_*/checkpoints/best_model.pth
 
 # Dataset directories
 data/raw/
